@@ -40,7 +40,7 @@ struct overclock_config overclock[] = {
   { "clk3", 800 },
   { "clk4", 1000 },
   { "vsel1", 18 },
-  { "vsel2", 30 },
+  { "vsel2", 31 },
   { "vsel3", 40 },
   { "vsel4", 52 },
   { "con_up_threshold", 80 },

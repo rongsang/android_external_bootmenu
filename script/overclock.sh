@@ -19,7 +19,7 @@ SCALING_GOVERNOR="/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor"
 # clk1 300
 # clk2 600
 # clk3 1000
-# vsel1 30
+# vsel1 31
 # vsel2 46
 # vsel3 58
 # con_up_threshold 80
