@@ -32,8 +32,8 @@ struct overclock_config
 };
 
 struct overclock_config overclock[] = {
-  { "enable", 0 },
-  { "load_all", 0 },
+  { "enable", 1 },
+  { "load_all", 1 },
   { "scaling", 2 },
   { "clk1", 300 },
   { "clk2", 600 },
