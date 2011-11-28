@@ -1,3 +1,5 @@
+ifeq ($(BOARD_USES_BOOTMENU),true)
+
 ifeq ($(TARGET_ARCH),arm)
 ifneq ($(TARGET_SIMULATOR),true)
 
@@ -13,7 +15,7 @@ bootmenu_sources := \
     default_bootmenu_ui.c \
     ui.c \
 
-BOOTMENU_VERSION:=1.0.6
+BOOTMENU_VERSION:=1.0.8
 
 # Variables available in BoardConfig.mk related to mount devices
 EXTRA_CFLAGS :=
@@ -31,9 +33,10 @@ ifdef BOARD_SDEXT_DEVICE
     EXTRA_CFLAGS += -DSDEXT_DEVICE=\"$(BOARD_SDEXT_DEVICE)\"
 endif
 
-################################
+######################################
+# Cyanogen version
 
-ifeq ($(BOARD_USES_BOOTMENU),true)
+ifneq ($(BUILD_BOOTMENU_STANDALONE),1)
 
 include $(CLEAR_VARS)
 
@@ -45,13 +48,10 @@ LOCAL_SRC_FILES := $(bootmenu_sources)
 BOOTMENU_SUFFIX :=
 
 LOCAL_CFLAGS += \
-    -DBOOTMENU_VERSION="${BOOTMENU_VERSION}${BOOTMENU_SUFFIX}" -DFULL_VERSION=0 \
+    -DBOOTMENU_VERSION="${BOOTMENU_VERSION}${BOOTMENU_SUFFIX}" -DSTOCK_VERSION=0 \
     -DMAX_ROWS=40 -DMAX_COLS=96 ${EXTRA_CFLAGS}
 
-PRODUCT_PACKAGES += libminui_bm
-
-LOCAL_STATIC_LIBRARIES :=
-LOCAL_STATIC_LIBRARIES += libminui_bm libpixelflinger_static libpng libz
+LOCAL_STATIC_LIBRARIES := libminui_bm libpixelflinger_static libpng libz
 LOCAL_STATIC_LIBRARIES += libstdc++ libc libcutils 
 
 LOCAL_FORCE_STATIC_EXECUTABLE := true
@@ -60,13 +60,11 @@ LOCAL_MODULE_PATH := $(PRODUCT_OUT)/system/bin
 
 include $(BUILD_EXECUTABLE)
 
-include $(call all-makefiles-under,$(bootmenu_local_path))
+endif # !BUILD_BOOTMENU_STANDALONE
 
-endif # BOARD_USES_BOOTMENU
+#####################################
+# Standalone version for stock roms
 
-
-############################
-# Standalone version
 ifeq ($(BUILD_BOOTMENU_STANDALONE),1)
 
 LOCAL_PATH := $(bootmenu_local_path)
@@ -78,14 +76,13 @@ LOCAL_MODULE_TAGS := eng
 
 LOCAL_SRC_FILES := $(bootmenu_sources)
 
-BOOTMENU_SUFFIX :=-full
+BOOTMENU_SUFFIX := -$(TARGET_BOOTLOADER_BOARD_NAME)
 
 LOCAL_CFLAGS := \
-    -DBOOTMENU_VERSION="${BOOTMENU_VERSION}${BOOTMENU_SUFFIX}" -DFULL_VERSION=1 \
+    -DBOOTMENU_VERSION="${BOOTMENU_VERSION}${BOOTMENU_SUFFIX}" -DSTOCK_VERSION=1 \
     -DMAX_ROWS=40 -DMAX_COLS=96 ${EXTRA_CFLAGS}
 
-LOCAL_STATIC_LIBRARIES :=
-LOCAL_STATIC_LIBRARIES += libminui_bm libpixelflinger_static libpng libz
+LOCAL_STATIC_LIBRARIES := libminui_bm libpixelflinger_static libpng libz
 LOCAL_STATIC_LIBRARIES += libstdc++ libc libcutils
 
 LOCAL_FORCE_STATIC_EXECUTABLE := true
@@ -95,10 +92,16 @@ LOCAL_MODULE_STEM := bootmenu-standalone
 
 include $(BUILD_EXECUTABLE)
 
+endif #BUILD_BOOTMENU_STANDALONE
+
+#####################################
+# Include minui
+
 include $(call all-makefiles-under,$(bootmenu_local_path))
 
-endif
-###########################
+#####################################
 
 endif # !TARGET_SIMULATOR
 endif # TARGET_ARCH arm
+endif #BOARD_USES_BOOTMENU
+
