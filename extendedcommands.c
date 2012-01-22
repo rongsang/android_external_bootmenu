@@ -379,7 +379,6 @@ int show_menu_tools(void) {
 
 #define TOOL_UMOUNT  8
 
-
 #ifndef BOARD_MMC_DEVICE
 #define BOARD_MMC_DEVICE "/dev/block/mmcblk1"
 #endif
@@ -830,6 +829,13 @@ int exec_and_wait(char** argp) {
   case 0:                /* child */
     sigprocmask(SIG_SETMASK, &omask, NULL);
     execve(argp[0], argp, environ);
+
+    // execve require the full path of binary in argp[0]
+    if (errno == 2 && strncmp(argp[0], "/", 1)) {
+        char bin[PATH_MAX] = "/system/bin/";
+        argp[0] = strcat(bin, argp[0]);
+        execve(argp[0], argp, environ);
+    }
 
     fprintf(stdout, "E:Can't run %s (%s)\n", argp[0], strerror(errno));
     _exit(127);
