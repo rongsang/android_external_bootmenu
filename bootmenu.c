@@ -19,7 +19,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/reboot.h>
-//#include <sys/wait.h>
 #include <time.h>
 
 #include <unistd.h>
@@ -52,8 +51,10 @@ char* MENU_ITEMS[] = {
     "  +Boot -->",
 #if STOCK_VERSION
     "  +System -->",
-#else
+#elif !defined(NO_OVERCLOCK)
     "  +CPU Settings -->",
+#else
+    "",
 #endif
     "  +Recovery -->",
     "  +Tools -->",
@@ -62,16 +63,20 @@ char* MENU_ITEMS[] = {
 };
 
 static char** main_headers = NULL;
+static float progress_value = 0.0;
 
 /**
  * prepend_title()
  *
+ * Add fixed bootmenu header before menu items
+ *
+ * Note: Hard to tweak, should maybe be recoded
+ *       without malloc..
  */
 char** prepend_title(const char** headers) {
 
   char* title[] = {
-      "Android Bootmenu <v"
-      EXPAND(BOOTMENU_VERSION) ">",
+      "Android Bootmenu v" BOOTMENU_VERSION,
       "",
       NULL
   };
@@ -116,12 +121,26 @@ int get_menu_selection(char** headers, char** items, int menu_only,
   int chosen_item = -1;
 
   while (chosen_item < 0) {
+
+#ifdef BOARD_WITH_CPCAP
+    int level = battery_level();
+    if (level > 0) {
+      if ((50 * progress_value) != level / 2) {
+          progress_value = level / 100.0;
+          if (level < 20)
+             ui_print("Low battery ! %3d %%\n", level);
+          ui_reset_progress();
+          ui_show_progress(progress_value, 1);
+          ui_set_progress(1.0);
+      }
+    }
+#endif
+
     int key = ui_wait_key();
     int visible = ui_text_visible();
-
     int action = device_handle_key(key, visible);
 
-      if (action < 0) {
+    if (action < 0) {
         switch (action) {
           case HIGHLIGHT_UP:
             --selected;
@@ -139,13 +158,14 @@ int get_menu_selection(char** headers, char** items, int menu_only,
             break;
           case NO_ACTION:
             break;
-      }
+        }
     } else if (!menu_only) {
       chosen_item = action;
     }
   }
 
   ui_end_menu();
+
   return chosen_item;
 }
 
@@ -166,7 +186,7 @@ static void prompt_and_wait() {
   int select = 0;
 
   for (;;) {
-    ui_reset_progress();
+
     int chosen_item = get_menu_selection(main_headers, MENU_ITEMS, 0, select);
 
     // device-specific code may take some action here.  It may
@@ -187,7 +207,7 @@ static void prompt_and_wait() {
       case ITEM_SYSTEM:
         if (show_menu_system()) return;
         break;
-#else
+#elif !defined(NO_OVERCLOCK)
       case ITEM_OVERCLOCK:
         if (show_menu_overclock()) return;
         break;
@@ -263,7 +283,7 @@ static int run_bootmenu(void) {
     defmode = get_default_bootmode();
 
     // get and clean one shot bootmode (or default)
-    mode = get_bootmode(1);
+    mode = get_bootmode(1,1);
 
     if (mode == int_mode("bootmenu")
      || mode == int_mode("recovery")
@@ -275,7 +295,9 @@ static int run_bootmenu(void) {
 
     // only start adb if usb is connected
     if (usb_connected()) {
-      if (mode == int_mode("2nd-init-adb") || mode == int_mode("2nd-boot-adb")) {
+      if (mode == int_mode("2nd-init-adb")
+       || mode == int_mode("2nd-boot-adb")
+       || mode == int_mode("2nd-system-adb")) {
          exec_script(FILE_ADBD, DISABLE);
          adb_started = 1;
       }
@@ -302,6 +324,20 @@ static int run_bootmenu(void) {
           led_alert("red", DISABLE);
           status = BUTTON_TIMEOUT;
       }
+      else if (mode == int_mode("2nd-system") || mode == int_mode("2nd-system-adb")) {
+          led_alert("blue", DISABLE);
+          led_alert("red", ENABLE);
+          led_alert("green", ENABLE);
+          snd_system(DISABLE);
+          led_alert("red", DISABLE);
+          led_alert("green", DISABLE);
+          status = BUTTON_TIMEOUT;
+      }
+      else if (mode == int_mode("recovery-dev")) {
+          led_alert("blue", DISABLE);
+          exec_script(FILE_CUSTOMRECOVERY, DISABLE);
+          status = BUTTON_TIMEOUT;
+      }
       else if (mode == int_mode("recovery")) {
           led_alert("blue", DISABLE);
           exec_script(FILE_STABLERECOVERY, DISABLE);
@@ -312,13 +348,11 @@ static int run_bootmenu(void) {
           exec_script(FILE_ADBD, DISABLE);
           status = BUTTON_PRESSED;
       }
-#if STOCK_VERSION
       else if (mode == int_mode("normal") || mode == int_mode("normal-adb")) {
           led_alert("blue", DISABLE);
           stk_boot(DISABLE);
           status = BUTTON_TIMEOUT;
       }
-#endif
 
     }
 
@@ -327,15 +361,15 @@ static int run_bootmenu(void) {
         ui_init();
         ui_set_background(BACKGROUND_DEFAULT);
         ui_show_text(ENABLE);
+        led_alert("button-backlight", ENABLE);
+
         LOGI("Start Android BootMenu....\n");
 
         main_headers = prepend_title((const char**)MENU_HEADERS);
 
-        /* can be buggy
-
+        /* can be buggy, adb could lock filesystem
         if (!adb_started && usb_connected()) {
             ui_print("Usb connected, starting adb...\n\n");
-            //ui_print("Battery level: %d %%\n", battery_level());
             exec_script(FILE_ADBD, DISABLE);
         }
         */
@@ -351,6 +385,7 @@ static int run_bootmenu(void) {
         }
 
         checkup_report();
+        ui_reset_progress();
 
         prompt_and_wait();
         free_menu_headers(main_headers);
@@ -371,17 +406,23 @@ static int run_bootmenu(void) {
  *
  */
 int main(int argc, char **argv) {
-  char* hijacked_executable = argv[0];
+  char* executable = argv[0];
   int result;
 
-  if (NULL != strstr(hijacked_executable, "bootmenu")) {
+  if (argc == 2 && 0 == strcmp(argv[1], "postbootmenu")) {
+    exec_script(FILE_OVERCLOCK, DISABLE);
+    result = exec_script(FILE_POST_MENU, DISABLE);
+    bypass_sign("no");
+    sync();
+    return result;
+  }
+  else if (NULL != strstr(executable, "bootmenu")) {
     fprintf(stdout, "Run BootMenu..\n");
     result = run_bootmenu();
     sync();
     return result;
   }
   else if (argc >= 3 && 0 == strcmp(argv[2], "userdata")) {
-    //real_execute(argc, argv);
     result = run_bootmenu();
     real_execute(argc, argv);
     bypass_sign("no");
@@ -391,13 +432,6 @@ int main(int argc, char **argv) {
   else if (argc >= 3 && 0 == strcmp(argv[2], "pds")) {
     //kept for stock rom compatibility, please use postbootmenu
     real_execute(argc, argv);
-    exec_script(FILE_OVERCLOCK, DISABLE);
-    result = exec_script(FILE_POST_MENU, DISABLE);
-    bypass_sign("no");
-    sync();
-    return result;
-  }
-  else if (argc == 2 && 0 == strcmp(argv[1], "postbootmenu")) {
     exec_script(FILE_OVERCLOCK, DISABLE);
     result = exec_script(FILE_POST_MENU, DISABLE);
     bypass_sign("no");
